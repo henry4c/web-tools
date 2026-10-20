@@ -22,6 +22,75 @@
     }
   };
 
+  /* ---------------- 对战记录（localStorage 持久化） ---------------- */
+  var RECORDS_KEY = 'holdem.records.v1';
+  var RECORDS_MAX = 500;          // 最多保存 500 条，避免占满存储
+
+  function loadRecords() {
+    var list = store.get(RECORDS_KEY, []);
+    if (!Array.isArray(list)) return [];
+    return list.filter(function (r) {
+      return r && typeof r.id === 'number' && typeof r.handNo === 'number';
+    });
+  }
+  function saveRecords(list) {
+    try {
+      localStorage.setItem(RECORDS_KEY, JSON.stringify(list));
+    } catch (e) {
+      // 存储空间不足：只保留最近 100 条再试一次
+      try { localStorage.setItem(RECORDS_KEY, JSON.stringify(list.slice(-100))); } catch (e2) { /* 忽略 */ }
+    }
+  }
+  /* 把一手的结果写进对战记录 */
+  function pushRecord(game, me, sum) {
+    var levels = [];
+    game.players.forEach(function (p) {
+      if (p.isHuman) return;
+      var lv = AI.LEVELS[p.level] || AI.LEVELS[2];
+      var st = STYLE_NAMES[p.style] || '';
+      levels.push(lv.name + (st ? '/' + st : ''));
+    });
+    var rec = {
+      id: Date.now() + Math.floor(Math.random() * 1000),
+      time: Date.now(),
+      handNo: game.handNo,
+      blinds: game.sb + '/' + game.bb,
+      players: game.players.length,
+      opponents: levels,
+      hole: me.hole.slice(),
+      board: game.board.slice(),
+      handName: me.folded ? '弃牌' : (me.handName || ''),
+      folded: !!me.folded,
+      showdown: !!sum.showdown,
+      result: me.folded ? 'fold' : (me.won > 0 ? 'win' : 'lose'),
+      committed: me.totalBet,
+      won: me.won,
+      net: me.net,
+      chipsAfter: me.chips,
+      totalPot: sum.totalPot,
+      winners: sum.pots.map(function (r) { return r.winners.join('、'); }).join('；'),
+    };
+    S.records.push(rec);
+    if (S.records.length > RECORDS_MAX) S.records = S.records.slice(-RECORDS_MAX);
+    saveRecords(S.records);
+  }
+  /* 根据记录重算统计（删除记录后也能得到正确汇总） */
+  function statsFromRecords() {
+    var st = { hands: S.records.length, net: 0, wins: 0, showdowns: 0 };
+    S.records.forEach(function (r) {
+      st.net += r.net || 0;
+      if (r.result === 'win') st.wins++;
+      if (r.showdown) st.showdowns++;
+    });
+    return st;
+  }
+
+  function recalcStats() {
+    S.stats = statsFromRecords();
+    S.stats.net = S.records.reduce(function (a, r) { return a + (r.net || 0); }, 0);
+    return S.stats;
+  }
+
   var LEVEL_NAMES = AI.LEVELS.map(function (l) { return l.name; });
   var STYLE_NAMES = AI.STYLES.map(function (s) { return s.name; });
   var STREET_CN = { preflop: '翻牌前', flop: '翻牌', turn: '转牌', river: '河牌', showdown: '摊牌' };
@@ -38,6 +107,8 @@
     raiseOpen: false,
     timers: [],
     stats: { hands: 0, net: 0, wins: 0, showdowns: 0 },
+    records: [],          // 对战记录（每手一条，持久化在 localStorage）
+    historyTab: 'summary',
     lastEquity: null,
     eqToken: 0,
     seats: [],
@@ -223,7 +294,13 @@
     $('btnSettings').addEventListener('click', openSetup);
     $('btnRules').addEventListener('click', showModal('rulesModal'));
     $('btnRulesClose').addEventListener('click', hideModal('rulesModal'));
-    $('btnStats').addEventListener('click', showStats);
+    $('btnStats').addEventListener('click', function () { showStats('summary'); });
+    // 面板里的 tab（用事件委托，避免元素重建后失效）
+    $('statsModal').addEventListener('click', function (e) {
+      var t = e.target;
+      while (t && t !== this && !(t.classList && t.classList.contains('tab'))) t = t.parentNode;
+      if (t && t !== this && t.dataset && t.dataset.tab) showStats(t.dataset.tab);
+    });
     $('btnStatsClose').addEventListener('click', hideModal('statsModal'));
     $('chkEquity').addEventListener('change', function () {
       S.settings.showEquity = $('chkEquity').checked;
@@ -354,7 +431,8 @@
     S.busy = false;
     S.handOver = false;
     S.raiseOpen = false;
-    S.stats = { hands: 0, net: 0, wins: 0, showdowns: 0 };
+    S.handsSession = 0;
+    recalcStats();
     S.lastEquity = null;
     S.highlight = null;
     S.logSeen = 0;
@@ -505,6 +583,7 @@
     var game = S.game;
     if (!game) return;
     var me = human();
+    if (!me) return;
     $('statHand').textContent = '第 ' + game.handNo + ' 手';
     $('statBlinds').textContent = '盲注 ' + game.sb + '/' + game.bb;
     $('statMyChips').textContent = '我的筹码 ' + fmt(me.chips);
@@ -522,7 +601,10 @@
     flushLog();
   }
 
-  function human() { return S.game.players.find(function (p) { return p.isHuman; }); }
+  function human() {
+    if (!S.game) return null;
+    return S.game.players.find(function (p) { return p.isHuman; }) || null;
+  }
 
   function renderBoard(force) {
     var game = S.game;
@@ -616,7 +698,9 @@
 
   function renderHandPanel(force) {
     var game = S.game;
+    if (!game) return;
     var me = human();
+    if (!me) return;
     var wrap = $('myCards');
     var hl = S.highlight || [];
     var sig = me.hole.join(',') + '|' + hl.join(',');
@@ -818,7 +902,7 @@
     var game = S.game;
     if (!game || game.state !== 'betting') return null;
     var me = human();
-    if (game.players[game.toAct] !== me) return null;
+    if (!me || game.players[game.toAct] !== me) return null;
     return game.options(me);
   }
 
@@ -939,11 +1023,11 @@
     S.handOver = true;
     S.busy = false;
     S.lastEquity = null;
-    S.stats.hands++;
     var me = human();
-    S.stats.net += me.net;
-    if (me.won > 0) S.stats.wins++;
-    if (game.resultSummary.showdown && !me.folded) S.stats.showdowns++;
+    // 写入对战记录（持久化），统计从记录汇总
+    pushRecord(game, me, game.resultSummary);
+    S.handsSession = (S.handsSession || 0) + 1;
+    recalcStats();
 
     // 高亮赢家的最佳 5 张
     S.highlight = pickHighlight(game);
@@ -1082,16 +1166,33 @@
     toastTimer = setTimeout(function () { t.classList.remove('on'); }, 2400);
   }
 
-  function showStats() {
+  /* ---------------- 战绩 / 对战记录面板 ---------------- */
+  function showStats(tab) {
+    if (tab) S.historyTab = tab;
+    recalcStats();
+    $('historyCount').textContent = String(S.records.length);
+    document.querySelectorAll('.stats-tabs .tab').forEach(function (b) {
+      b.classList.toggle('on', b.dataset.tab === S.historyTab);
+    });
+    var summaryOn = S.historyTab === 'summary';
+    $('statsBody').style.display = summaryOn ? '' : 'none';
+    $('historyBody').style.display = summaryOn ? 'none' : '';
+    renderSummary();
+    renderHistory();
+    showModal('statsModal');
+  }
+
+  function renderSummary() {
     var s = S.stats;
     var me = human();
+    var avg = S.records.length ? S.records.reduce(function (a, r) { return a + (r.net || 0); }, 0) / S.records.length : 0;
     var rows = [
-      ['已打手数', s.hands],
+      ['已打手数（含历史记录）', S.records.length],
       ['赢下的手数', s.wins],
-      ['胜率（赢手 / 总手数）', s.hands ? Math.round(s.wins / s.hands * 100) + '%' : '—'],
+      ['胜率（赢手 / 总手数）', S.records.length ? Math.round(s.wins / S.records.length * 100) + '%' : '—'],
       ['累计净收益', (s.net >= 0 ? '+' : '') + fmt(s.net)],
+      ['每手平均收益', S.records.length ? (avg >= 0 ? '+' : '') + avg.toFixed(1) : '—'],
       ['当前筹码', me ? fmt(me.chips) : '—'],
-      ['每手平均收益', s.hands ? ((s.net / s.hands) >= 0 ? '+' : '') + (s.net / s.hands).toFixed(1) : '—'],
     ];
     var box = $('statsBody');
     box.innerHTML = '';
@@ -1101,18 +1202,119 @@
       row.appendChild(el('b', null, String(r[1])));
       box.appendChild(row);
     });
+    if (!S.game) return;
     var oppSec = el('div', 'stat-opps');
     oppSec.appendChild(el('div', 'rc-section-title', '本桌对手'));
     S.game.players.forEach(function (p) {
       if (p.isHuman) return;
-      var lv = AI.LEVELS[p.level];
+      var lv = AI.LEVELS[p.level] || AI.LEVELS[2];
       var row = el('div', 'stat-row');
-      row.appendChild(el('span', null, p.name + '（' + lv.name + ' · ' + STYLE_NAMES[p.style] + '）'));
+      row.appendChild(el('span', null, p.name + '（' + lv.name + ' · ' + (STYLE_NAMES[p.style] || '') + '）'));
       row.appendChild(el('b', null, fmt(p.chips)));
       oppSec.appendChild(row);
     });
     box.appendChild(oppSec);
-    showModal('statsModal');
+  }
+
+  function fmtTime(ts) {
+    var d = new Date(ts);
+    function p2(n) { return n < 10 ? '0' + n : String(n); }
+    return (d.getMonth() + 1) + '月' + d.getDate() + '日 ' + p2(d.getHours()) + ':' + p2(d.getMinutes());
+  }
+
+  function renderHistory() {
+    var box = $('historyBody');
+    box.innerHTML = '';
+    // 顶部操作栏
+    var bar = el('div', 'history-bar');
+    bar.appendChild(el('span', 'history-total', '共 ' + S.records.length + ' 条 · 累计净收益 ' +
+      (S.stats.net >= 0 ? '+' : '') + fmt(S.stats.net)));
+    var clearBtn = el('button', 'btn ghost danger', '全部删除');
+    clearBtn.type = 'button';
+    clearBtn.disabled = S.records.length === 0;
+    clearBtn.addEventListener('click', clearAllRecords);
+    bar.appendChild(clearBtn);
+    box.appendChild(bar);
+
+    if (!S.records.length) {
+      box.appendChild(el('div', 'history-empty', '还没有对战记录。打完一手后会自动保存在本地浏览器里。'));
+      return;
+    }
+    var list = el('div', 'history-list');
+    // 最新的在最上面
+    for (var i = S.records.length - 1; i >= 0; i--) {
+      list.appendChild(historyRow(S.records[i], i));
+    }
+    box.appendChild(list);
+  }
+
+  function historyRow(rec, idx) {
+    var row = el('div', 'history-row ' + rec.result);
+    var head = el('div', 'hr-head');
+    var tag = el('span', 'hr-tag ' + rec.result,
+      rec.result === 'win' ? '胜' : (rec.result === 'fold' ? '弃牌' : '负'));
+    head.appendChild(tag);
+    head.appendChild(el('span', 'hr-title', '第 ' + rec.handNo + ' 手 · ' + rec.players + ' 人 · 盲注 ' + rec.blinds));
+    head.appendChild(el('span', 'hr-time', fmtTime(rec.time)));
+    row.appendChild(head);
+
+    var main = el('div', 'hr-main');
+    var cards = el('span', 'hr-cards');
+    (rec.hole || []).forEach(function (c) { cards.appendChild(cardEl(c, { small: true, noCenter: true })); });
+    main.appendChild(cards);
+    var info = el('span', 'hr-info');
+    info.appendChild(el('b', null, rec.handName || '—'));
+    var delta = rec.net >= 0 ? '+' + fmt(rec.net) : fmt(rec.net);
+    var deltaEl = el('span', 'hr-delta ' + (rec.net > 0 ? 'pos' : (rec.net < 0 ? 'neg' : '')), '净 ' + delta);
+    info.appendChild(deltaEl);
+    info.appendChild(el('span', 'hr-sub',
+      '投入 ' + fmt(rec.committed) + ' · 底池 ' + fmt(rec.totalPot) + ' · 结余 ' + fmt(rec.chipsAfter) +
+      (rec.winners ? ' · 赢家 ' + rec.winners : '')));
+    main.appendChild(info);
+    row.appendChild(main);
+
+    if (rec.board && rec.board.length) {
+      var boardRow = el('div', 'hr-board');
+      boardRow.appendChild(el('span', 'hr-board-label', '公共牌'));
+      rec.board.forEach(function (c) { boardRow.appendChild(cardEl(c, { small: true, noCenter: true })); });
+      row.appendChild(boardRow);
+    }
+    if (rec.opponents && rec.opponents.length) {
+      row.appendChild(el('div', 'hr-opps', '对手：' + rec.opponents.join('、')));
+    }
+
+    var del = el('button', 'hr-del', '×');
+    del.type = 'button';
+    del.title = '删除这条记录';
+    del.addEventListener('click', function (e) {
+      e.stopPropagation();
+      deleteRecord(rec.id);
+    });
+    row.appendChild(del);
+    void idx;
+    return row;
+  }
+
+  function deleteRecord(id) {
+    S.records = S.records.filter(function (r) { return r.id !== id; });
+    saveRecords(S.records);
+    recalcStats();
+    $('historyCount').textContent = String(S.records.length);
+    renderHistory();
+    renderSummary();
+    toast('已删除这条记录');
+  }
+
+  function clearAllRecords() {
+    if (!S.records.length) return;
+    if (!window.confirm('确定删除全部 ' + S.records.length + ' 条对战记录吗？删除后无法恢复。')) return;
+    S.records = [];
+    saveRecords(S.records);
+    recalcStats();
+    $('historyCount').textContent = '0';
+    renderHistory();
+    renderSummary();
+    toast('已清空全部对战记录');
   }
 
   /* ---------------- 事件 ---------------- */
@@ -1234,6 +1436,7 @@
   /* ---------------- 启动 ---------------- */
   function init() {
     S.settings = loadSettings();
+    S.records = loadRecords();
     buildSetupUI();
     bindEvents();
     $('chkEquity').checked = S.settings.showEquity;
