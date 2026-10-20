@@ -26,7 +26,7 @@
       <div class="info-chip" id="statNet">净收益 0</div>
     </div>
     <div class="top-actions">
-      <button class="btn ghost" id="btnStats" title="战绩统计">战绩</button>
+      <button class="btn ghost" id="btnStats" title="战绩与对战记录">战绩</button>
       <button class="btn ghost" id="btnRules" title="规则与牌型">规则</button>
       <button class="btn ghost" id="btnSettings" title="重新设置">设置</button>
     </div>
@@ -229,14 +229,19 @@
     </div>
   </div>
 
-  <!-- ================= 战绩面板 ================= -->
+  <!-- ================= 战绩 / 对战记录面板 ================= -->
   <div class="modal" id="statsModal">
     <div class="modal-card stats">
       <div class="modal-head">
-        <h2>战绩统计</h2>
+        <h2>战绩与对战记录</h2>
         <button class="close" id="btnStatsClose" title="关闭">×</button>
       </div>
+      <div class="stats-tabs">
+        <button class="tab on" data-tab="summary" type="button">本局统计</button>
+        <button class="tab" data-tab="history" type="button">对战记录<span class="tab-badge" id="historyCount">0</span></button>
+      </div>
       <div class="rules-body" id="statsBody"></div>
+      <div class="rules-body history-pane" id="historyBody" style="display:none"></div>
     </div>
   </div>
 
