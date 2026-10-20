@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<meta name="theme-color" content="#0b0f0d" />
+<title>德州扑克 · 单机对战</title>
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+<div id="app">
+
+  <!-- ================= 顶部栏 ================= -->
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-suits"><i class="s-black">♠</i><i class="s-red">♥</i><i class="s-red">♦</i><i class="s-black">♣</i></span>
+      <span class="brand-name">德州扑克</span>
+      <span class="brand-sub">单机 · 无需联网</span>
+    </div>
+    <div class="top-info">
+      <div class="info-chip" id="statHand">第 0 手</div>
+      <div class="info-chip" id="statHands">已打 0 手</div>
+      <div class="info-chip" id="statBlinds">盲注 10/20</div>
+      <div class="info-chip" id="statMyChips">我的筹码 —</div>
+      <div class="info-chip" id="statWinrate">胜率 —</div>
+      <div class="info-chip" id="statNet">净收益 0</div>
+    </div>
+    <div class="top-actions">
+      <button class="btn ghost" id="btnStats" title="战绩统计">战绩</button>
+      <button class="btn ghost" id="btnRules" title="规则与牌型">规则</button>
+      <button class="btn ghost" id="btnSettings" title="重新设置">设置</button>
+    </div>
+  </header>
+
+  <!-- ================= 牌桌 ================= -->
+  <main class="table-wrap">
+    <div class="table">
+      <div class="table-felt">
+        <div class="felt-ring"></div>
+        <div class="felt-logo">♠ HOLDEM ♥</div>
+
+        <div class="center">
+          <div class="pot-row">
+            <div class="pot-box">
+              <div class="pot-label">底池</div>
+              <div class="pot-value" id="potValue">0</div>
+            </div>
+            <div class="street-badge" id="streetBadge">翻牌前</div>
+          </div>
+          <div class="board" id="board"></div>
+        </div>
+
+        <div class="seats" id="seats"></div>
+      </div>
+    </div>
+
+    <!-- 行动条 -->
+    <section class="actionbar">
+      <div class="action-info">
+        <div class="turn-label" id="turnLabel">准备开始</div>
+        <div class="to-call" id="toCallLabel"></div>
+      </div>
+
+      <div class="action-buttons">
+        <button class="btn act fold" id="btnFold">弃牌<kbd>F</kbd></button>
+        <button class="btn act check" id="btnCheck">过牌<kbd>C</kbd></button>
+        <button class="btn act call" id="btnCall">跟注<kbd>K</kbd></button>
+        <button class="btn act raise" id="btnRaise">加注<kbd>R</kbd></button>
+        <button class="btn act allin" id="btnAllin">全下<kbd>A</kbd></button>
+      </div>
+
+      <div class="raise-row" id="raiseRow">
+        <div class="raise-head">
+          <span class="raise-amount" id="raiseAmount">0</span>
+          <span class="raise-of" id="raiseOf">/ 0</span>
+        </div>
+        <input type="range" id="raiseSlider" class="raise-slider" min="0" max="100" step="1" value="0" aria-label="加注金额" />
+        <div class="raise-quick">
+          <button class="chip-btn" data-frac="0.5" title="半个底池">½ 池</button>
+          <button class="chip-btn" data-frac="0.75" title="四分之三底池">¾ 池</button>
+          <button class="chip-btn" data-frac="1" title="一个底池">1 池</button>
+          <button class="chip-btn" data-frac="min" title="最小加注">最小</button>
+          <button class="chip-btn" data-frac="allin" title="全下">全下</button>
+        </div>
+        <button class="btn confirm" id="btnConfirmRaise">确认加注</button>
+      </div>
+    </section>
+
+    <!-- 手牌 / 胜率 / 日志 -->
+    <section class="handpanel">
+      <div class="hp-left">
+        <div class="hp-label">我的手牌</div>
+        <div class="hp-cards" id="myCards"></div>
+      </div>
+      <div class="hp-mid">
+        <div class="hp-label-row">
+          <span class="hp-label">胜率</span>
+          <span class="hp-eq" id="eqText">—</span>
+        </div>
+        <div class="eqbar"><div class="eqbar-fill" id="eqBarFill"></div></div>
+        <div class="hp-sub" id="handStrength">等待发牌…</div>
+      </div>
+      <div class="hp-right">
+        <div class="hp-log-head">
+          <span class="hp-label">牌局日志</span>
+          <button class="linkbtn" id="btnRebuy" title="筹码不足时补充筹码">补码</button>
+        </div>
+        <div class="hp-log" id="logList"></div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ================= 结算浮层 ================= -->
+  <div class="modal overlay" id="resultOverlay">
+    <div class="result-card" id="resultCard">
+      <div class="rc-title" id="rcTitle">摊牌</div>
+      <div class="rc-sub" id="rcSub"></div>
+      <div class="rc-board" id="rcBoard"></div>
+      <div class="rc-pots" id="rcPots"></div>
+      <div class="rc-actions">
+        <label class="chk"><input type="checkbox" id="chkAutoNext" /> 自动进入下一手</label>
+        <button class="btn primary big" id="btnNextHand">下一手 <kbd>空格</kbd></button>
+        <button class="btn ghost" id="btnShowHand">看看桌面</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= 设置面板 ================= -->
+  <div class="modal" id="setupModal">
+    <div class="modal-card setup">
+      <div class="modal-head">
+        <h2 id="setupTitle">新牌局</h2>
+        <button class="close" id="btnSetupClose" title="关闭">×</button>
+      </div>
+
+      <div class="setup-body">
+        <section>
+          <h3>机器人数量</h3>
+          <p class="hint">对手人数，总座位 = 机器人 + 你（最多 9 人桌）</p>
+          <div class="seg" id="botCountSeg"></div>
+        </section>
+
+        <section>
+          <h3>机器人水平</h3>
+          <p class="hint">选一个水平会应用到所有机器人；也可以在下面逐个调整</p>
+          <div class="seg levels" id="botLevelSeg"></div>
+          <div class="bot-list" id="botList"></div>
+        </section>
+
+        <section>
+          <h3>机器人性格</h3>
+          <p class="hint">紧手只玩强牌，激进喜欢加注施压；逐个调整请用上方列表</p>
+          <div class="seg" id="botStyleSeg"></div>
+        </section>
+
+        <section class="grid2">
+          <div>
+            <h3>盲注</h3>
+            <div class="two-col">
+              <div class="field">
+                <label for="inpSB">小盲</label>
+                <input id="inpSB" type="number" min="1" step="1" value="10" inputmode="numeric" />
+              </div>
+              <div class="field">
+                <label for="inpBB">大盲</label>
+                <input id="inpBB" type="number" min="2" step="1" value="20" inputmode="numeric" />
+              </div>
+            </div>
+          </div>
+          <div>
+            <h3>机器人思考速度</h3>
+            <div class="seg" id="speedSeg"></div>
+          </div>
+        </section>
+
+        <section>
+          <h3>初始筹码</h3>
+          <div class="seg" id="stackSeg"></div>
+        </section>
+
+        <section class="opts">
+          <label class="chk"><input type="checkbox" id="chkEquity" checked /> 显示我的实时胜率</label>
+        </section>
+      </div>
+
+      <div class="setup-foot">
+        <span class="foot-note" id="setupNote"></span>
+        <button class="btn primary big" id="btnStart">开始对局</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= 规则面板 ================= -->
+  <div class="modal" id="rulesModal">
+    <div class="modal-card rules">
+      <div class="modal-head">
+        <h2>规则与操作</h2>
+        <button class="close" id="btnRulesClose" title="关闭">×</button>
+      </div>
+      <div class="rules-body">
+        <h3>基本流程</h3>
+        <ol>
+          <li>每人发 2 张底牌，只有自己能看到。</li>
+          <li>翻牌前：庄家下家下小盲、再下家下大盲；大盲下家先行动。</li>
+          <li>依次发出 3 张（翻牌）、1 张（转牌）、1 张（河牌）公共牌，每轮各下注一次。</li>
+          <li>用「2 张底牌 + 5 张公共牌」中任意 5 张组成最大牌型，最大者赢走底池。</li>
+          <li>筹码不够时可以选择全下；全下者不再参与后续下注，但仍有资格分配底池。</li>
+          <li>只剩一个人没弃牌时立即结束，他直接赢走底池，不需要亮牌。</li>
+          <li>单挑（2 人）时：庄家下小盲、翻牌前先行动，翻牌后后行动。</li>
+        </ol>
+        <h3>牌型大小（从大到小）</h3>
+        <ul class="handlist">
+          <li><b>皇家同花顺</b> A K Q J 10，且同花</li>
+          <li><b>同花顺</b> 五张同花连牌</li>
+          <li><b>四条</b> 四张同点数</li>
+          <li><b>葫芦</b> 三条 + 一对</li>
+          <li><b>同花</b> 五张同花色</li>
+          <li><b>顺子</b> 五张连牌（A 可作 1 组成 A2345）</li>
+          <li><b>三条</b> 三张同点数</li>
+          <li><b>两对</b> 两组对子</li>
+          <li><b>一对</b> 两张同点数</li>
+          <li><b>高牌</b> 什么也没凑成，比最大单牌</li>
+        </ul>
+        <h3>快捷键</h3>
+        <p>弃牌 <kbd>F</kbd> · 过牌 <kbd>C</kbd> · 跟注 <kbd>K</kbd> · 加注 <kbd>R</kbd> · 全下 <kbd>A</kbd> · 下一手 <kbd>空格</kbd>；加注面板打开后，<kbd>1</kbd>~<kbd>4</kbd> 依次为 ½ 池 / ¾ 池 / 1 池 / 全下，<kbd>M</kbd> 最小加注，<kbd>回车</kbd> 确认，<kbd>Esc</kbd> 收起。</p>
+        <h3>机器人水平</h3>
+        <p>新手几乎只看牌面大小；休闲有基本概念；中级会算胜率按底池赔率行动；高手会看位置、在多人底池里更谨慎并会诈唬；职业胜率采样更精确、下注尺度与诈唬比例更平衡，长期最难打赢。</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= 战绩面板 ================= -->
+  <div class="modal" id="statsModal">
+    <div class="modal-card stats">
+      <div class="modal-head">
+        <h2>战绩统计</h2>
+        <button class="close" id="btnStatsClose" title="关闭">×</button>
+      </div>
+      <div class="rules-body" id="statsBody"></div>
+    </div>
+  </div>
+
+</div>
+
+<script src="js/engine.js"></script>
+<script src="js/game.js"></script>
+<script src="js/ai.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
